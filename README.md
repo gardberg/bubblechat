@@ -2,6 +2,8 @@
 
 A minimal chatbot terminal UI.
 
+<img width="750" src="./bubblechat.gif" />
+
 ### TODO
 
 - [ ] Fix multiline bug
