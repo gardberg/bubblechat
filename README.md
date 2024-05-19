@@ -8,5 +8,5 @@ A minimal chatbot terminal UI.
 
 - [ ] Fix multiline bug
 - [ ] Add streaming response animation
-- [ ] Api status icon
+- [x] Api status icon
 - [ ] Custom endpoint support
