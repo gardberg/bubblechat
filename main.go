@@ -49,7 +49,12 @@ const (
 	backgroundColor = ""
 
 	promptColor = "#cda9d6"
+	promptTextColor = "#fcfcfc"
+	promptPrefix = "> "
+
 	responseColor = "#b7e4cf"
+	responseTextColor = "#e2cdb5"
+	responsePrefix = "> "
 
 	viewportPadding = 1
 	viewportTextWidth = 80
@@ -79,14 +84,16 @@ func initializeClient() {
 }
 
 type model struct {
-	viewport 		viewport.Model
-	messages 		[]string
-	textarea 		textarea.Model
-	promptStyle 	lipgloss.Style
-	responseStyle 	lipgloss.Style
-	spinner 		spinner.Model
-	waiting 		bool
-	err 			error
+	viewport 			viewport.Model
+	messages 			[]string
+	textarea 			textarea.Model
+	promptStyle 		lipgloss.Style
+	promptTextStyle 	lipgloss.Style
+	responseStyle 		lipgloss.Style
+	responseTextStyle 	lipgloss.Style
+	spinner 			spinner.Model
+	waiting 			bool
+	err 				error
 }
 
 type responseMsg struct {
@@ -128,14 +135,16 @@ func initialModel() model {
 	// vp.HighPerformanceRendering = true
 
 	return model{
-		viewport:		vp,
-		messages: 		[]string{},
-		textarea: 		ta,
-		promptStyle: 	lipgloss.NewStyle().Foreground(lipgloss.Color(promptColor)),
-		responseStyle: 	lipgloss.NewStyle().Foreground(lipgloss.Color(responseColor)),
-		spinner: 		spinner.New(spinner.WithSpinner(spinnerType)),
-		waiting: 		false,
-		err: 			nil,
+		viewport:			vp,
+		messages: 			[]string{},
+		textarea: 			ta,
+		promptStyle: 		lipgloss.NewStyle().Foreground(lipgloss.Color(promptColor)),
+		promptTextStyle: 	lipgloss.NewStyle().Foreground(lipgloss.Color(promptTextColor)),
+		responseStyle: 		lipgloss.NewStyle().Foreground(lipgloss.Color(responseColor)),
+		responseTextStyle: 	lipgloss.NewStyle().Foreground(lipgloss.Color(responseTextColor)),
+		spinner: 			spinner.New(spinner.WithSpinner(spinnerType)),
+		waiting: 			false,
+		err: 				nil,
 	}
 
 }
@@ -167,8 +176,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case tea.KeyEnter:
 				message := m.textarea.Value()
 
-				m.messages = append(m.messages, m.promptStyle.Render("> ") + message)
-				m.messages = append(m.messages, m.responseStyle.Render("> ") + m.spinner.View())
+				m.messages = append(m.messages, m.promptStyle.Render(promptPrefix) + m.promptTextStyle.Render(message))
+				m.messages = append(m.messages, m.responseStyle.Render(responsePrefix) + m.spinner.View())
 
 				UpdateViewport(&m)
 
@@ -188,7 +197,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		m.spinner, _ = m.spinner.Update(msg)
 
-		updatedMessage := m.responseStyle.Render("> ") + m.spinner.View()
+		updatedMessage := m.responseStyle.Render(responsePrefix) + m.spinner.View()
 		m.messages = append(m.messages[:len(m.messages) - 1], updatedMessage)
 
 		UpdateViewport(&m)
@@ -210,7 +219,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		response := m.responseStyle.Render("> ") + msg.message
+		response := m.responseStyle.Render(responsePrefix) + m.responseTextStyle.Render(msg.message)
 		m.messages = append(m.messages[:len(m.messages) - 1], response)
 
 		UpdateViewport(&m)
@@ -232,13 +241,14 @@ func UpdateViewport(m *model) {
 	joinedMessages := strings.Join(m.messages, "\n")
 
 	// TODO: Handle multiline inputs correctly
-	nbrLines := strings.Count(joinedMessages, "\n") + 1
+	// nbrLines := strings.Count(joinedMessages, "\n") + 1
 
 	// To make chat start from bottom
-	offset := strings.Repeat("\n", max(viewportHeight - nbrLines - 2, 0))
-	toDisplay := lipgloss.NewStyle().Render(offset + joinedMessages)
+	// offset := strings.Repeat("\n", max(viewportHeight - nbrLines - 2, 0))
+	offset := ""
+	// toDisplay := lipgloss.NewStyle().Render(offset + joinedMessages)
 
-	m.viewport.SetContent(toDisplay)
+	m.viewport.SetContent(offset + joinedMessages)
 }
 
 func GetResponseCmd(message string) tea.Cmd {
