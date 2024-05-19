@@ -48,38 +48,42 @@ const (
 	// Empty string for transparent
 	backgroundColor = ""
 
-	senderColor = "#cda9d6"
-	receiverColor = "#b7e4cf"
+	promptColor = "#cda9d6"
+	responseColor = "#b7e4cf"
 
 	viewportPadding = 1
-	viewportWidth = 60 + 2 * viewportPadding
+	viewportTextWidth = 80
+	viewportWidth = viewportTextWidth + 2 * viewportPadding
 	viewportHeight = 20
 
-	textareaWidth = 60
+	textareaWidth = 80
 	textareaHeight = 1
 
 )
 
 var (
 	spinnerType = spinner.MiniDot
+
 	client *openai.Client
 	ctx context.Context
 	chatMessages []openai.ChatCompletionMessage
 )
 
 func initializeClient() {
+	config := openai.DefaultConfig(getApiKey())	
 
-	client = openai.NewClient(getApiKey())
+	// Change base URL for custom OpenAI-like endpoint
+	// config.BaseURL = "https://my.api.com/v1"
+	client = openai.NewClientWithConfig(config)
 	ctx = context.Background()
 }
 
 type model struct {
 	viewport 		viewport.Model
 	messages 		[]string
-	rawMessages 	[]string
 	textarea 		textarea.Model
-	senderStyle 	lipgloss.Style
-	receiverStyle 	lipgloss.Style
+	promptStyle 	lipgloss.Style
+	responseStyle 	lipgloss.Style
 	spinner 		spinner.Model
 	waiting 		bool
 	err 			error
@@ -121,13 +125,14 @@ func initialModel() model {
 
 	vp.MouseWheelEnabled = true
 
+	// vp.HighPerformanceRendering = true
+
 	return model{
 		viewport:		vp,
 		messages: 		[]string{},
-		rawMessages: 	[]string{},
 		textarea: 		ta,
-		senderStyle: 	lipgloss.NewStyle().Foreground(lipgloss.Color(senderColor)),
-		receiverStyle: 	lipgloss.NewStyle().Foreground(lipgloss.Color(receiverColor)),
+		promptStyle: 	lipgloss.NewStyle().Foreground(lipgloss.Color(promptColor)),
+		responseStyle: 	lipgloss.NewStyle().Foreground(lipgloss.Color(responseColor)),
 		spinner: 		spinner.New(spinner.WithSpinner(spinnerType)),
 		waiting: 		false,
 		err: 			nil,
@@ -161,10 +166,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Quit
 			case tea.KeyEnter:
 				message := m.textarea.Value()
-				m.rawMessages = append(m.rawMessages, message)
-				m.messages = append(m.messages, m.senderStyle.Render("> ") + message)
 
-				m.messages = append(m.messages, m.receiverStyle.Render("> ") + m.spinner.View())
+				m.messages = append(m.messages, m.promptStyle.Render("> ") + message)
+				m.messages = append(m.messages, m.responseStyle.Render("> ") + m.spinner.View())
 
 				UpdateViewport(&m)
 
@@ -184,7 +188,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		m.spinner, _ = m.spinner.Update(msg)
 
-		updatedMessage := m.receiverStyle.Render("> ") + m.spinner.View()
+		updatedMessage := m.responseStyle.Render("> ") + m.spinner.View()
 		m.messages = append(m.messages[:len(m.messages) - 1], updatedMessage)
 
 		UpdateViewport(&m)
@@ -206,8 +210,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		m.rawMessages = append(m.rawMessages, msg.message)
-		m.messages = append(m.messages[:len(m.messages) - 1], m.receiverStyle.Render("> ") + msg.message)
+		response := m.responseStyle.Render("> ") + msg.message
+		m.messages = append(m.messages[:len(m.messages) - 1], response)
 
 		UpdateViewport(&m)
 
@@ -232,8 +236,9 @@ func UpdateViewport(m *model) {
 
 	// To make chat start from bottom
 	offset := strings.Repeat("\n", max(viewportHeight - nbrLines - 2, 0))
+	toDisplay := lipgloss.NewStyle().Render(offset + joinedMessages)
 
-	m.viewport.SetContent(offset + joinedMessages)
+	m.viewport.SetContent(toDisplay)
 }
 
 func GetResponseCmd(message string) tea.Cmd {
