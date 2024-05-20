@@ -6,7 +6,9 @@ A minimal chatbot terminal UI.
 
 ### TODO
 
-- [ ] Fix multiline bug
+- [x] Fix multiline bug
+- [x] Fix chat history bug
+
 - [ ] Add streaming response animation
 - [x] Api status icon
 - [ ] Custom endpoint support

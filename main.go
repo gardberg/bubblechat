@@ -15,6 +15,9 @@ import (
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/joho/godotenv"
 	openai "github.com/sashabaranov/go-openai"
+	"github.com/muesli/reflow/wordwrap"
+	"github.com/charmbracelet/glamour"
+	"github.com/charmbracelet/bubbles/key"
 )
 
 func main() {
@@ -59,7 +62,7 @@ const (
 	viewportPadding = 1
 	viewportTextWidth = 80
 	viewportWidth = viewportTextWidth + 2 * viewportPadding
-	viewportHeight = 20
+	viewportHeight = 22
 
 	textareaWidth = 80
 	textareaHeight = 1
@@ -99,6 +102,7 @@ type model struct {
 	responseTextStyle 	lipgloss.Style
 	spinner 			spinner.Model
 	waiting 			bool
+	renderer 			*glamour.TermRenderer
 	err 				error
 }
 
@@ -140,6 +144,11 @@ func (h headerModel) View() string {
 }
 
 func initialModel() model {
+	// Renderer
+	renderer, _ := glamour.NewTermRenderer(
+		glamour.WithWordWrap(0),
+	)
+
 	// Header
 	headerModel := headerModel{
 		modelName: modelName,
@@ -188,7 +197,7 @@ func initialModel() model {
 	ta.BlurredStyle.Base = borderStyle
 
 	// Viewport
-	vp := viewport.New(viewportWidth, viewportHeight)
+	vp := viewport.New(viewportWidth, viewportHeight + 2)
 	vpBorder := lipgloss.RoundedBorder()
 	vpBorder.TopLeft = "├"
 	vpBorder.TopRight = "┤"
@@ -198,6 +207,17 @@ func initialModel() model {
 
 	vp.MouseWheelEnabled = true
 
+	// just use scrolling or arrows for scrolling
+	vp.KeyMap = viewport.KeyMap{
+		Up: key.NewBinding(
+			key.WithKeys("up"),
+			key.WithHelp("↑", "up"),
+		),
+		Down: key.NewBinding(
+			key.WithKeys("down"),
+			key.WithHelp("↓", "down"),
+		),
+	}
 	// vp.HighPerformanceRendering = true
 
 	return model{
@@ -211,6 +231,7 @@ func initialModel() model {
 		responseTextStyle: 	lipgloss.NewStyle().Foreground(lipgloss.Color(responseTextColor)),
 		spinner: 			spinner.New(spinner.WithSpinner(spinnerType)),
 		waiting: 			false,
+		renderer: 			renderer,
 		err: 				nil,
 	}
 
@@ -234,26 +255,34 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.spinner, spinnerCmd = m.spinner.Update(msg)
 	}
 
+
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		switch msg.Type {
-			case tea.KeyCtrlC, tea.KeyEsc:
-				fmt.Println(m.textarea.Value())
-				return m, tea.Quit
-			case tea.KeyEnter:
-				message := m.textarea.Value()
+		switch msg.String() {
+		case "ctrl+c", "q", "esc":
+			fmt.Println(m.textarea.Value())
+			return m, tea.Quit
+		case "enter":
+			log.Printf("Msg: %v", msg.Type)
+			log.Printf("Message: %v", m.textarea.Value())
+			log.Printf("Message line count: %v", m.viewport.TotalLineCount())
 
-				m.messages = append(m.messages, m.promptStyle.Render(promptPrefix) + m.promptTextStyle.Render(message))
-				m.messages = append(m.messages, m.responseStyle.Render(responsePrefix) + m.spinner.View())
+			message := strings.TrimSpace(m.textarea.Value())
+			message = wordwrap.String(message, viewportTextWidth - 3)
 
-				UpdateViewport(&m)
+			m.messages = append(m.messages, m.promptStyle.Render(promptPrefix) + m.promptTextStyle.Render(message))
+			m.messages = append(m.messages, m.responseStyle.Render(responsePrefix) + m.spinner.View())
 
-				m.textarea.Reset()
-				m.viewport.GotoBottom()
+			UpdateViewport(&m)
+			log.Printf("Viewport line count: %v\n", m.viewport.TotalLineCount())
 
-				m.waiting = true
+			m.textarea.Reset()
+			m.viewport.GotoBottom()
 
-				return m, tea.Batch(m.spinner.Tick, GetResponseCmd(message))
+			m.waiting = true
+
+			return m, tea.Batch(m.spinner.Tick, GetResponseCmd(message), textInputCmd, viewportCmd)
+		
 		}
 	
 	case spinner.TickMsg:
@@ -293,7 +322,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case responseMsg:
-
+		log.Printf("Msg: %T", msg)
 		m.waiting = false
 
 		if msg.err != nil {
@@ -301,10 +330,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		response := m.responseStyle.Render(responsePrefix) + m.responseTextStyle.Render(msg.message)
+		log.Printf("Original line count: %v", strings.Count(msg.message, "\n") + 1)
+		log.Printf("Original message: \n%v", msg.message)
+
+		message := wordwrap.String(msg.message, viewportTextWidth - 3)
+		response := m.responseStyle.Render(responsePrefix) + m.responseTextStyle.Render(message)
 		m.messages = append(m.messages[:len(m.messages) - 1], response)
 
+		log.Printf("Wrapped line count: %v", strings.Count(message, "\n") + 1)
 		UpdateViewport(&m)
+		log.Printf("Viewport line count: %v\n", m.viewport.TotalLineCount())
 
 		m.viewport.GotoBottom()
 
@@ -323,6 +358,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case error: 
+		log.Printf("Msg: %v", msg)
 		m.err = msg
 		return m, nil
 
@@ -332,18 +368,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func UpdateViewport(m *model) {
-	joinedMessages := strings.Join(m.messages, "\n")
+	joinedMessages := strings.Join(m.messages, "\n") + "\n\u200e"
 
 	// TODO: Handle multiline inputs correctly
-	nbrLines := strings.Count(joinedMessages, "\n") + 1
+	// nbrLines := strings.Count(joinedMessages, "\n") + 1
 
 	// To make chat start from bottom
-	offset := strings.Repeat("\n", max(viewportHeight - nbrLines - 2, 0))
-	// offset := ""
+	// offset := strings.Repeat("\n", max(viewportHeight - nbrLines - 2, 0))
+	offset := ""
 	// toDisplay := lipgloss.NewStyle().Width(viewportWidth).Render(offset + joinedMessages)
 	toDisplay := offset + joinedMessages
 
+	toDisplay, _ = m.renderer.Render(toDisplay + "\n ")
+
 	m.viewport.SetContent(toDisplay)
+
 }
 
 func GetResponseCmd(message string) tea.Cmd {
@@ -353,6 +392,8 @@ func GetResponseCmd(message string) tea.Cmd {
 			Content: message,
 		})
 
+		log.Print("Chat messages: ", chatMessages)
+
 		req := openai.ChatCompletionRequest{
 			Model: modelName,
 			Messages: chatMessages,
@@ -360,8 +401,12 @@ func GetResponseCmd(message string) tea.Cmd {
 
 		resp, err := client.CreateChatCompletion(ctx, req)
 
+		chatMessages = append(chatMessages, resp.Choices[0].Message)
+
+		message := resp.Choices[0].Message.Content
+
 		return responseMsg{
-			message:	resp.Choices[0].Message.Content,
+			message:	message,
 			err: 		err, 
 		}
 	}
@@ -386,12 +431,12 @@ func (m *model) resetSpinner() {
 }
 
 func (m model) View() string {
-	return fmt.Sprintf(
-			"%s\n%s\n\n%s",
-			m.header.View(),
-			m.viewport.View(),
-			m.textarea.View(),
-		) + "\n\n"
+	return lipgloss.JoinVertical(
+		lipgloss.Left,
+		m.header.View(),
+		m.viewport.View(),
+		m.textarea.View(),
+	)
 }
 
 func max(a, b int) int {
