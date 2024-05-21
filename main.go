@@ -1,28 +1,28 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
+	"os"
 	"strings"
 	"time"
-	"os"
-	"context"
 
+	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
-	"github.com/charmbracelet/bubbles/spinner"
-	"github.com/joho/godotenv"
-	openai "github.com/sashabaranov/go-openai"
-	"github.com/muesli/reflow/wordwrap"
 	"github.com/charmbracelet/glamour"
-	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/joho/godotenv"
+	"github.com/muesli/reflow/wordwrap"
+	openai "github.com/sashabaranov/go-openai"
 )
 
 func main() {
 	model := initialModel()
-	program := tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion())	
+	program := tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion())
 
 	initializeClient()
 
@@ -32,7 +32,6 @@ func main() {
 		log.Fatal(err)
 	}
 }
-
 
 func getApiKey() string {
 	err := godotenv.Load()
@@ -51,38 +50,37 @@ const (
 	// Empty string for transparent
 	backgroundColor = ""
 
-	promptColor = "#cda9d6"
+	promptColor     = "#cda9d6"
 	promptTextColor = "#fcfcfc"
-	promptPrefix = "> "
+	promptPrefix    = "> "
 
-	responseColor = "#b7e4cf"
+	responseColor     = "#b7e4cf"
 	responseTextColor = "#e2cdb5"
-	responsePrefix = "> "
+	responsePrefix    = "> "
 
-	viewportPadding = 1
+	viewportPadding   = 1
 	viewportTextWidth = 80
-	viewportWidth = viewportTextWidth + 2 * viewportPadding
-	viewportHeight = 22
+	viewportWidth     = viewportTextWidth + 2*viewportPadding
+	viewportHeight    = 22
 
-	textareaWidth = 80
+	textareaWidth  = 80
 	textareaHeight = 1
 
 	modelName = openai.GPT3Dot5Turbo
-
 )
 
 var (
-	spinnerType = spinner.MiniDot
+	spinnerType       = spinner.MiniDot
 	statusSpinnerType = spinner.Line
 
-	client *openai.Client
-	ctx context.Context
+	client       *openai.Client
+	ctx          context.Context
 	chatMessages []openai.ChatCompletionMessage
-	baseURL string
+	baseURL      string
 )
 
 func initializeClient() {
-	config := openai.DefaultConfig(getApiKey())	
+	config := openai.DefaultConfig(getApiKey())
 
 	// Change base URL for custom OpenAI-like endpoint
 	// config.BaseURL = "https://my.api.com/v1"
@@ -92,40 +90,40 @@ func initializeClient() {
 }
 
 type model struct {
-	header 				headerModel
-	viewport 			viewport.Model
-	messages 			[]string
-	textarea 			textarea.Model
-	promptStyle 		lipgloss.Style
-	promptTextStyle 	lipgloss.Style
-	responseStyle 		lipgloss.Style
-	responseTextStyle 	lipgloss.Style
-	spinner 			spinner.Model
-	waiting 			bool
-	renderer 			*glamour.TermRenderer
-	err 				error
+	header            headerModel
+	viewport          viewport.Model
+	messages          []string
+	textarea          textarea.Model
+	promptStyle       lipgloss.Style
+	promptTextStyle   lipgloss.Style
+	responseStyle     lipgloss.Style
+	responseTextStyle lipgloss.Style
+	spinner           spinner.Model
+	waiting           bool
+	renderer          *glamour.TermRenderer
+	err               error
 }
 
 type responseMsg struct {
-	message 	string
-	err 		error
+	message string
+	err     error
 }
 
 type statusMsg struct {
-	err 	error
+	err error
 }
 
 type headerModel struct {
-	modelName 		string
-	statusSpinner 	spinner.Model
-	style 			lipgloss.Style
-	requestDone 	bool
-	requestSuccess 	bool
+	modelName      string
+	statusSpinner  spinner.Model
+	style          lipgloss.Style
+	requestDone    bool
+	requestSuccess bool
 }
 
 func (h headerModel) View() string {
 	var rightIcon string
-	var padAmount int 
+	var padAmount int
 	if h.requestDone {
 		padAmount = 2
 		if h.requestSuccess {
@@ -138,7 +136,7 @@ func (h headerModel) View() string {
 		rightIcon = h.statusSpinner.View()
 	}
 
-	middlePadding := strings.Repeat(" ", viewportWidth - len(h.modelName) - len(rightIcon) - padAmount)
+	middlePadding := strings.Repeat(" ", viewportWidth-len(h.modelName)-len(rightIcon)-padAmount)
 	content := modelName + middlePadding + rightIcon
 	return h.style.Render(content)
 }
@@ -149,11 +147,32 @@ func initialModel() model {
 		glamour.WithWordWrap(0),
 	)
 
-	// Header
+	return model{
+		header:            NewHeader(),
+		viewport:          NewViewport(),
+		messages:          []string{},
+		textarea:          NewTextarea(),
+		promptStyle:       StyleFromColor(promptColor),
+		promptTextStyle:   StyleFromColor(promptTextColor),
+		responseStyle:     StyleFromColor(responseColor),
+		responseTextStyle: StyleFromColor(responseTextColor),
+		spinner:           spinner.New(spinner.WithSpinner(spinnerType)),
+		waiting:           false,
+		renderer:          renderer,
+		err:               nil,
+	}
+
+}
+
+func StyleFromColor(color string) lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(lipgloss.Color(color))
+}
+
+func NewHeader() headerModel {
 	headerModel := headerModel{
-		modelName: modelName,
+		modelName:     modelName,
 		statusSpinner: spinner.New(spinner.WithSpinner(statusSpinnerType)),
-		requestDone: false,
+		requestDone:   false,
 	}
 
 	border := lipgloss.RoundedBorder()
@@ -161,20 +180,21 @@ func initialModel() model {
 	border.BottomLeft = ""
 	border.BottomRight = ""
 
-	// Set border thickness
-
 	headerStyle := lipgloss.
-	NewStyle().
-	Width(viewportTextWidth).
-	Height(1).
-	Padding(0, 1).
-	Border(border, true, true, false, true).
-	Foreground(lipgloss.Color("#636363"))
+		NewStyle().
+		Width(viewportTextWidth).
+		Height(1).
+		Padding(0, 1).
+		Border(border, true, true, false, true).
+		Foreground(lipgloss.Color("#636363"))
 
 	headerModel.style = headerStyle
 
-	// Text input area
-	ta := textarea.New()	
+	return headerModel
+}
+
+func NewTextarea() textarea.Model {
+	ta := textarea.New()
 	ta.Focus()
 
 	ta.Prompt = "┃ "
@@ -196,8 +216,11 @@ func initialModel() model {
 	ta.FocusedStyle.Base = borderStyle
 	ta.BlurredStyle.Base = borderStyle
 
-	// Viewport
-	vp := viewport.New(viewportWidth, viewportHeight + 2)
+	return ta
+}
+
+func NewViewport() viewport.Model {
+	vp := viewport.New(viewportWidth, viewportHeight+2)
 	vpBorder := lipgloss.RoundedBorder()
 	vpBorder.TopLeft = "├"
 	vpBorder.TopRight = "┤"
@@ -218,23 +241,7 @@ func initialModel() model {
 			key.WithHelp("↓", "down"),
 		),
 	}
-	// vp.HighPerformanceRendering = true
-
-	return model{
-		header: 			headerModel,
-		viewport:			vp,
-		messages: 			[]string{},
-		textarea: 			ta,
-		promptStyle: 		lipgloss.NewStyle().Foreground(lipgloss.Color(promptColor)),
-		promptTextStyle: 	lipgloss.NewStyle().Foreground(lipgloss.Color(promptTextColor)),
-		responseStyle: 		lipgloss.NewStyle().Foreground(lipgloss.Color(responseColor)),
-		responseTextStyle: 	lipgloss.NewStyle().Foreground(lipgloss.Color(responseTextColor)),
-		spinner: 			spinner.New(spinner.WithSpinner(spinnerType)),
-		waiting: 			false,
-		renderer: 			renderer,
-		err: 				nil,
-	}
-
+	return vp
 }
 
 func (m model) Init() tea.Cmd {
@@ -246,7 +253,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		textInputCmd tea.Cmd
 		viewportCmd  tea.Cmd
 		spinnerCmd   tea.Cmd
-	)	
+	)
 
 	m.textarea, textInputCmd = m.textarea.Update(msg)
 	m.viewport, viewportCmd = m.viewport.Update(msg)
@@ -254,7 +261,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.waiting {
 		m.spinner, spinnerCmd = m.spinner.Update(msg)
 	}
-
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
@@ -268,12 +274,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			log.Printf("Message line count: %v", m.viewport.TotalLineCount())
 
 			message := strings.TrimSpace(m.textarea.Value())
-			message = wordwrap.String(message, viewportTextWidth - 3)
+			message = wordwrap.String(message, viewportTextWidth-3)
 
-			m.messages = append(m.messages, m.promptStyle.Render(promptPrefix) + m.promptTextStyle.Render(message))
-			m.messages = append(m.messages, m.responseStyle.Render(responsePrefix) + m.spinner.View())
+			m.messages = append(m.messages, m.promptStyle.Render(promptPrefix)+m.promptTextStyle.Render(message))
+			m.messages = append(m.messages, m.responseStyle.Render(responsePrefix)+m.spinner.View())
 
 			UpdateViewport(&m)
+
 			log.Printf("Viewport line count: %v\n", m.viewport.TotalLineCount())
 
 			m.textarea.Reset()
@@ -282,9 +289,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.waiting = true
 
 			return m, tea.Batch(m.spinner.Tick, GetResponseCmd(message), textInputCmd, viewportCmd)
-		
+
 		}
-	
+
 	case spinner.TickMsg:
 
 		if msg.ID == m.spinner.ID() {
@@ -295,13 +302,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.spinner, _ = m.spinner.Update(msg)
 
 			updatedMessage := m.responseStyle.Render(responsePrefix) + m.spinner.View()
-			m.messages = append(m.messages[:len(m.messages) - 1], updatedMessage)
+			m.messages = append(m.messages[:len(m.messages)-1], updatedMessage)
 
 			UpdateViewport(&m)
 
 			m.textarea.Reset()
-			m.viewport.GotoBottom()	
-			
+			m.viewport.GotoBottom()
+
 			// Control spinner animation
 			time.Sleep(100 * time.Millisecond)
 
@@ -323,6 +330,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case responseMsg:
 		log.Printf("Msg: %T", msg)
+
 		m.waiting = false
 
 		if msg.err != nil {
@@ -330,15 +338,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		log.Printf("Original line count: %v", strings.Count(msg.message, "\n") + 1)
+		log.Printf("Original line count: %v", strings.Count(msg.message, "\n")+1)
 		log.Printf("Original message: \n%v", msg.message)
 
-		message := wordwrap.String(msg.message, viewportTextWidth - 3)
+		message := wordwrap.String(msg.message, viewportTextWidth-3)
 		response := m.responseStyle.Render(responsePrefix) + m.responseTextStyle.Render(message)
-		m.messages = append(m.messages[:len(m.messages) - 1], response)
+		m.messages = append(m.messages[:len(m.messages)-1], response)
 
-		log.Printf("Wrapped line count: %v", strings.Count(message, "\n") + 1)
+		log.Printf("Wrapped line count: %v", strings.Count(message, "\n")+1)
+
 		UpdateViewport(&m)
+
 		log.Printf("Viewport line count: %v\n", m.viewport.TotalLineCount())
 
 		m.viewport.GotoBottom()
@@ -357,7 +367,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		return m, nil
 
-	case error: 
+	case error:
 		log.Printf("Msg: %v", msg)
 		m.err = msg
 		return m, nil
@@ -368,34 +378,25 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func UpdateViewport(m *model) {
-	joinedMessages := strings.Join(m.messages, "\n") + "\n\u200e"
+	// TODO: Make chat start from bottom
 
-	// TODO: Handle multiline inputs correctly
-	// nbrLines := strings.Count(joinedMessages, "\n") + 1
-
-	// To make chat start from bottom
-	// offset := strings.Repeat("\n", max(viewportHeight - nbrLines - 2, 0))
-	offset := ""
-	// toDisplay := lipgloss.NewStyle().Width(viewportWidth).Render(offset + joinedMessages)
-	toDisplay := offset + joinedMessages
-
+	toDisplay := strings.Join(m.messages, "\n") + "\n\u200e"
 	toDisplay, _ = m.renderer.Render(toDisplay + "\n ")
 
 	m.viewport.SetContent(toDisplay)
-
 }
 
 func GetResponseCmd(message string) tea.Cmd {
-    return func() tea.Msg {
+	return func() tea.Msg {
 		chatMessages = append(chatMessages, openai.ChatCompletionMessage{
-			Role: openai.ChatMessageRoleUser,
+			Role:    openai.ChatMessageRoleUser,
 			Content: message,
 		})
 
 		log.Print("Chat messages: ", chatMessages)
 
 		req := openai.ChatCompletionRequest{
-			Model: modelName,
+			Model:    modelName,
 			Messages: chatMessages,
 		}
 
@@ -406,8 +407,8 @@ func GetResponseCmd(message string) tea.Cmd {
 		message := resp.Choices[0].Message.Content
 
 		return responseMsg{
-			message:	message,
-			err: 		err, 
+			message: message,
+			err:     err,
 		}
 	}
 
@@ -437,11 +438,4 @@ func (m model) View() string {
 		m.viewport.View(),
 		m.textarea.View(),
 	)
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }
